@@ -57,7 +57,7 @@ To install and run this project, follow these steps:
 ## Example
 
 ```sh
-python script_name.py
+python transcribe.py
  ```
 
 After this you will be asked to enter the main language.
