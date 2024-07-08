@@ -58,7 +58,9 @@ To install and run this project, follow these steps:
 
 ```sh
 python script_name.py
+ ```
 
+After this you will be asked to enter the main language.
 	•	Enter the language code: en
 	•	Start speaking. The application will display transcribed text in the console.
 	•	End the session with CTRL + C. The output will be saved to a text file in the Downloads folder.
