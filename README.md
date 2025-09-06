@@ -10,7 +10,7 @@ A simple, fast terminal transcriber with two commands:
 
 ---
 
-## 1 · Features
+## 1&nbsp;· Features
 - **Live mic transcription in terminal**
 - **Default engine**: RealtimeSTT (voice-activity-detection, wake-word ready, low latency)  
   **Fallback**: legacy SpeechRecognition + faster-whisper
@@ -20,7 +20,7 @@ A simple, fast terminal transcriber with two commands:
 
 ---
 
-## 2 · Requirements
+## 2&nbsp;· Requirements
 - Python **3.9+**
 - **PortAudio** runtime for microphone access  
   • macOS: `brew install portaudio` then `pip install pyaudio`  
@@ -28,7 +28,7 @@ A simple, fast terminal transcriber with two commands:
 
 ---
 
-## 3 · Install
+## 3&nbsp;· Install
 
 ```bash
 git clone https://github.com/tristan-mcinnis/Realtime-Whisper-Console-Transcriber
@@ -51,13 +51,18 @@ uv pip install "git+https://github.com/narcotic-sh/senko.git"
 
 ---
 
-## 4 · Usage
+## 4&nbsp;· Usage
 
 ### Live (default engine: RealtimeSTT)
 ```bash
 python transcribe.py live --language en
 ```
 If RealtimeSTT is not present, the script transparently switches to the legacy engine.
+
+```bash
+# Minimal console output (no Rich panels)
+python transcribe.py live --language en --plain
+```
 
 ### Live with legacy engine
 ```bash
@@ -74,16 +79,16 @@ python transcribe.py diarize path/to/audio.wav \
     --json-out diarization.json
 ```
 Prints speaker segments and (optionally) writes merged segments to JSON.  
-Prepare audio with `ffmpeg -i input.mp3 -ac 1 -ar 16000 -sample_fmt s16 output.wav`.
+Prepare audio with `ffmpeg -i input.mp3 -ac 1 -ar 16000 -sample_fmt s16 output.wav`  (if you pass a non-WAV file, the tool will attempt this conversion automatically when **ffmpeg** is available).
 
 ---
 
-## 5 · Notes
+## 5&nbsp;· Notes
 - **GPU** acceleration is optional. RealtimeSTT supports CUDA; faster-whisper runs on CPU by default.
 - On **Windows**, multiprocessing requirements are handled inside the script (`if __name__ == "__main__":` guard).
 - Disable automatic saving of transcripts via `--no-save` flag on `live`.
 
 ---
 
-## 6 · License
+## 6&nbsp;· License
 This project remains under the existing LICENSE contained in the repository.

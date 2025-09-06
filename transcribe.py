@@ -6,6 +6,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
+import shutil
+import subprocess
+import tempfile
 
 # Set the environment variable to allow duplicate OpenMP runtime initialization
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
@@ -32,7 +35,43 @@ def fmt_ts(seconds: float) -> str:
     minutes, seconds = divmod(remainder, 60)
     return f"{int(hours):02d}:{int(minutes):02d}:{seconds:.3f}"
 
-def live_realtimestt(language: str, model: str, save: bool) -> None:
+def ensure_wav_16k_mono(input_path: str) -> str:
+    """
+    Ensure the provided file is a 16 kHz mono 16-bit WAV.
+    If the file is already a .wav we optimistically assume it is correct.
+    Otherwise we attempt conversion via ffmpeg, writing to a temp file.
+    """
+    # fast-path for wav
+    if input_path.lower().endswith('.wav'):
+        return input_path
+
+    ff = shutil.which('ffmpeg')
+    if not ff:
+        raise RuntimeError(
+            "Non-WAV file provided and ffmpeg not found. "
+            "Please convert the audio to 16 kHz mono 16-bit WAV or install ffmpeg."
+        )
+
+    tmp_out = os.path.join(
+        tempfile.gettempdir(), f"diarize-{int(time.time())}.wav"
+    )
+    cmd = [
+        ff,
+        '-y',
+        '-i', input_path,
+        '-ac', '1',
+        '-ar', '16000',
+        '-sample_fmt', 's16',
+        tmp_out,
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if res.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg conversion failed: {res.stderr.decode(errors='ignore')[:400]}"
+        )
+    return tmp_out
+
+def live_realtimestt(language: str, model: str, save: bool, plain: bool = False) -> None:
     try:
         from RealtimeSTT import AudioToTextRecorder
     except Exception:
@@ -53,7 +92,10 @@ def live_realtimestt(language: str, model: str, save: bool) -> None:
             language=language or "auto",
             enable_realtime_transcription=False,
         ) as recorder:
-            console.print(Panel("Listening… Press CTRL+C to stop", border_style="green", title="LIVE · RealtimeSTT"))
+            if plain:
+                console.print("Listening… Press CTRL+C to stop")
+            else:
+                console.print(Panel("Listening… Press CTRL+C to stop", border_style="green", title="LIVE · RealtimeSTT"))
             recorder.listen()
             while True:
                 phrase = recorder.text()  # blocks until a phrase is finalized by VAD
@@ -71,7 +113,7 @@ def live_realtimestt(language: str, model: str, save: bool) -> None:
         if save and captured:
             save_log_to_file(captured, prefix="live")
 
-def live_legacy(language: str, model: str, buffer_size: int, phrase_time_limit: int, save: bool) -> None:
+def live_legacy(language: str, model: str, buffer_size: int, phrase_time_limit: int, save: bool, plain: bool = False) -> None:
     try:
         import speech_recognition as sr
     except Exception as e:
@@ -118,9 +160,15 @@ def live_legacy(language: str, model: str, buffer_size: int, phrase_time_limit: 
     # ambient noise adjust and background listen
     try:
         with sr.Microphone() as source:
-            console.print(Panel(f"Adjusting for ambient noise… (Language: {language})", border_style="blue", title="INIT"))
+            if plain:
+                console.print(f"Adjusting for ambient noise… (Language: {language})")
+            else:
+                console.print(Panel(f"Adjusting for ambient noise… (Language: {language})", border_style="blue", title="INIT"))
             r.adjust_for_ambient_noise(source, duration=2)
-        console.print(Panel("Start speaking. Press CTRL+C to stop", border_style="green", title="LIVE · Legacy"))
+        if plain:
+            console.print("Start speaking. Press CTRL+C to stop")
+        else:
+            console.print(Panel("Start speaking. Press CTRL+C to stop", border_style="green", title="LIVE · Legacy"))
         stop_listening = r.listen_in_background(sr.Microphone(), callback, phrase_time_limit=phrase_time_limit)
         while True:
             time.sleep(0.5)
@@ -151,9 +199,10 @@ def diarize_file(audio_path: str, device: str = 'auto', json_out: Optional[str] 
         ))
         return
 
+    src = ensure_wav_16k_mono(audio_path)
     try:
         diarizer = senko.Diarizer(torch_device=device, warmup=True, quiet=True)
-        result = diarizer.diarize(audio_path, generate_colors=False)
+        result = diarizer.diarize(src, generate_colors=False)
         if result is None:
             console.print(Panel("No speakers detected.", border_style="yellow", title="DIARIZATION"))
             return
@@ -170,6 +219,13 @@ def diarize_file(audio_path: str, device: str = 'auto', json_out: Optional[str] 
             console.print(Panel(f"Saved JSON: {json_out}", border_style="green", title="OUTPUT"))
     except Exception as e:
         console.print(Panel(f"Diarization error: {e}", border_style="red", title="ERROR"))
+    finally:
+        # remove temp converted file if we created one
+        try:
+            if src != audio_path and os.path.exists(src):
+                os.remove(src)
+        except Exception:
+            pass
 
 def main():
     parser = argparse.ArgumentParser(description="Console transcriber: realtime (live) and diarization (offline)")
@@ -182,6 +238,7 @@ def main():
     p_live.add_argument('--buffer-size', type=int, default=2, help='Legacy engine: number of segments to buffer before printing')
     p_live.add_argument('--phrase-time-limit', type=int, default=3, help='Legacy engine: seconds per phrase chunk')
     p_live.add_argument('--no-save', action='store_true', help='Do not save transcript to Downloads at exit')
+    p_live.add_argument('--plain', action='store_true', help='Plain output (no rich panels)')
 
     p_diar = sub.add_parser('diarize', help='Offline speaker diarization for an audio file (WAV 16kHz mono)')
     p_diar.add_argument('audio_path', help='Path to WAV file (16kHz mono 16-bit)')
@@ -194,12 +251,12 @@ def main():
         save = not args.no_save
         if args.engine == 'rstt':
             try:
-                live_realtimestt(args.language, args.model, save)
+                live_realtimestt(args.language, args.model, save, args.plain)
             except ImportError as e:
                 console.print(Panel(str(e) + "\nFalling back to legacy engine…", border_style="yellow", title="FALLBACK"))
-                live_legacy(args.language, args.model, args.buffer_size, args.phrase_time_limit, save)
+                live_legacy(args.language, args.model, args.buffer_size, args.phrase_time_limit, save, args.plain)
         else:
-            live_legacy(args.language, args.model, args.buffer_size, args.phrase_time_limit, save)
+            live_legacy(args.language, args.model, args.buffer_size, args.phrase_time_limit, save, args.plain)
     elif args.cmd == 'diarize':
         diarize_file(args.audio_path, device=args.device, json_out=args.json_out)
 
