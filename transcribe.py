@@ -1,25 +1,26 @@
+#!/usr/bin/env python3
 import os
 import sys
-import time
-import argparse
 import json
+import shutil
+import asyncio
+import argparse
+import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
-import shutil
-import subprocess
-import tempfile
+from typing import List, Dict, Any, Optional
 
 # Set the environment variable to allow duplicate OpenMP runtime initialization
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
 from rich.console import Console
 from rich.panel import Panel
+import websockets
 
 # Initialize Rich Console
 console = Console()
 
-def save_log_to_file(lines: List[str], prefix: str = "transcript") -> str:
+def save_transcript(lines: List[str], prefix: str = "transcript") -> str:
     """Writes joined lines with newlines to ~/Downloads/{prefix}-{YYYYMMDD-HHMMSS}.txt"""
     downloads_folder = str(Path.home() / "Downloads")
     filename = f"{prefix}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt"
@@ -29,236 +30,167 @@ def save_log_to_file(lines: List[str], prefix: str = "transcript") -> str:
     console.print(Panel(f"Transcript saved to {file_path}", border_style="green", title="OUTPUT"))
     return file_path
 
-def fmt_ts(seconds: float) -> str:
-    """Format seconds to HH:MM:SS.mmm"""
-    hours, remainder = divmod(seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"{int(hours):02d}:{int(minutes):02d}:{seconds:.3f}"
-
-def ensure_wav_16k_mono(input_path: str) -> str:
-    """
-    Ensure the provided file is a 16 kHz mono 16-bit WAV.
-    If the file is already a .wav we optimistically assume it is correct.
-    Otherwise we attempt conversion via ffmpeg, writing to a temp file.
-    """
-    # fast-path for wav
-    if input_path.lower().endswith('.wav'):
-        return input_path
-
-    ff = shutil.which('ffmpeg')
-    if not ff:
-        raise RuntimeError(
-            "Non-WAV file provided and ffmpeg not found. "
-            "Please convert the audio to 16 kHz mono 16-bit WAV or install ffmpeg."
-        )
-
-    tmp_out = os.path.join(
-        tempfile.gettempdir(), f"diarize-{int(time.time())}.wav"
-    )
-    cmd = [
-        ff,
-        '-y',
-        '-i', input_path,
-        '-ac', '1',
-        '-ar', '16000',
-        '-sample_fmt', 's16',
-        tmp_out,
-    ]
-    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if res.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg conversion failed: {res.stderr.decode(errors='ignore')[:400]}"
-        )
-    return tmp_out
-
-def live_realtimestt(language: str, model: str, save: bool, plain: bool = False) -> None:
-    try:
-        from RealtimeSTT import AudioToTextRecorder
-    except Exception:
-        raise ImportError("RealtimeSTT not installed. Install with: pip install RealtimeSTT")
-
-    captured: List[str] = []
-
-    def append_and_print(text: str):
-        if not text:
-            return
-        console.print(text)
-        captured.append(text)
-
-    # Use VAD-driven segments; print final phrases for stability and simplicity
-    try:
-        with AudioToTextRecorder(
-            model=model,
-            language=language or "auto",
-            enable_realtime_transcription=False,
-        ) as recorder:
-            if plain:
-                console.print("Listening… Press CTRL+C to stop")
-            else:
-                console.print(Panel("Listening… Press CTRL+C to stop", border_style="green", title="LIVE · RealtimeSTT"))
-            recorder.listen()
-            while True:
-                phrase = recorder.text()  # blocks until a phrase is finalized by VAD
-                append_and_print(phrase)
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        console.print(Panel(f"RealtimeSTT error: {e}", border_style="red", title="ERROR"))
-    finally:
-        # Best-effort shutdown if context wasn't used or was interrupted
-        try:
-            recorder.shutdown()  # type: ignore[name-defined]
-        except Exception:
-            pass
-        if save and captured:
-            save_log_to_file(captured, prefix="live")
-
-def live_legacy(language: str, model: str, buffer_size: int, phrase_time_limit: int, save: bool, plain: bool = False) -> None:
-    try:
-        import speech_recognition as sr
-    except Exception as e:
-        console.print(Panel("speech_recognition is required for legacy mode. Install with: pip install SpeechRecognition", border_style="red", title="MISSING DEP"))
-        return
-    try:
-        from faster_whisper import WhisperModel
-    except Exception:
-        console.print(Panel("faster-whisper is required for legacy mode. Install with: pip install faster-whisper", border_style="red", title="MISSING DEP"))
-        return
-
-    num_cores = max(1, (os.cpu_count() or 2) // 2)
-    whisper_model = WhisperModel(model, device='cpu', compute_type='int8', cpu_threads=num_cores, num_workers=num_cores)
-
-    r = sr.Recognizer()
-    buffer: List[str] = []
-    captured: List[str] = []
-
-    def wav_to_text(audio_path: str, lang: str) -> str:
-        segments, _ = whisper_model.transcribe(audio_path, language=lang)
-        return ''.join(seg.text for seg in segments)
-
-    def callback(recognizer, audio):
-        nonlocal buffer
-        tmp_path = 'prompt.wav'
-        try:
-            with open(tmp_path, 'wb') as f:
-                f.write(audio.get_wav_data())
-            text = wav_to_text(tmp_path, language)
-            buffer.append(text)
-            if len(buffer) >= buffer_size:
-                combined = ' '.join(buffer)
-                console.print(combined)
-                captured.append(combined)
-                buffer = []
-        except Exception as e:
-            console.print(Panel(f"Legacy callback error: {e}", border_style="red", title="ERROR"))
-        finally:
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
-
-    # ambient noise adjust and background listen
-    try:
-        with sr.Microphone() as source:
-            if plain:
-                console.print(f"Adjusting for ambient noise… (Language: {language})")
-            else:
-                console.print(Panel(f"Adjusting for ambient noise… (Language: {language})", border_style="blue", title="INIT"))
-            r.adjust_for_ambient_noise(source, duration=2)
-        if plain:
-            console.print("Start speaking. Press CTRL+C to stop")
-        else:
-            console.print(Panel("Start speaking. Press CTRL+C to stop", border_style="green", title="LIVE · Legacy"))
-        stop_listening = r.listen_in_background(sr.Microphone(), callback, phrase_time_limit=phrase_time_limit)
-        while True:
-            time.sleep(0.5)
-    except KeyboardInterrupt:
-        try:
-            stop_listening(wait_for_stop=False)
-        except Exception:
-            pass
-    except Exception as e:
-        console.print(Panel(f"Legacy runtime error: {e}", border_style="red", title="ERROR"))
-    finally:
-        # flush remaining buffer
-        if buffer:
-            combined = ' '.join(buffer)
-            console.print(combined)
-            captured.append(combined)
-            buffer = []
-        if save and captured:
-            save_log_to_file(captured, prefix="live")
-
-def diarize_file(audio_path: str, device: str = 'auto', json_out: Optional[str] = None) -> None:
-    try:
-        import senko
-    except Exception:
+def serve_command(args):
+    """Run whisperlivekit-server with the specified arguments"""
+    server_bin = shutil.which('whisperlivekit-server')
+    if not server_bin:
         console.print(Panel(
-            "Senko not installed. Install (Mac/CPU):\n  uv pip install 'git+https://github.com/narcotic-sh/senko.git'\nFor NVIDIA CUDA: see Senko README",
-            border_style="yellow", title="OPTIONAL DEP"
+            "whisperlivekit-server not found. Install with:\n  pip install whisperlivekit",
+            border_style="red", title="ERROR"
         ))
-        return
-
-    src = ensure_wav_16k_mono(audio_path)
+        return 1
+    
+    cmd = [server_bin, '--host', args.host, '--port', str(args.port), 
+           '--model', args.model, '--lan', args.language]
+    
+    if args.diarization:
+        cmd.append('--diarization')
+    
+    # Add optional arguments if specified
+    if args.device != 'auto':
+        cmd.extend(['--device', args.device])
+    
+    if args.backend != 'simulstreaming':
+        cmd.extend(['--backend', args.backend])
+    
+    console.print(Panel(
+        f"Starting WhisperLiveKit server on {args.host}:{args.port}\n"
+        f"Model: {args.model}, Language: {args.language}, Diarization: {'enabled' if args.diarization else 'disabled'}\n"
+        f"Press Ctrl+C to stop",
+        border_style="green", title="SERVER"
+    ))
+    
     try:
-        diarizer = senko.Diarizer(torch_device=device, warmup=True, quiet=True)
-        result = diarizer.diarize(src, generate_colors=False)
-        if result is None:
-            console.print(Panel("No speakers detected.", border_style="yellow", title="DIARIZATION"))
-            return
-        segments = result.get("merged_segments", [])
-        console.print(Panel(f"Detected {len({seg['speaker'] for seg in segments}) if segments else 0} speakers; {len(segments)} segments", border_style="green", title="DIARIZATION"))
-        for seg in segments:
-            s = seg.get('start', 0.0)
-            e = seg.get('end', 0.0)
-            spk = seg.get('speaker', '?')
-            console.print(f"[{fmt_ts(s)} – {fmt_ts(e)}] {spk}")
-        if json_out:
-            with open(json_out, 'w', encoding='utf-8') as f:
-                json.dump({"merged_segments": segments}, f, indent=2)
-            console.print(Panel(f"Saved JSON: {json_out}", border_style="green", title="OUTPUT"))
-    except Exception as e:
-        console.print(Panel(f"Diarization error: {e}", border_style="red", title="ERROR"))
-    finally:
-        # remove temp converted file if we created one
+        process = subprocess.Popen(
+            cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.STDOUT,
+            text=True, 
+            bufsize=1
+        )
+        
+        # Stream output to console
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            if line:
+                console.print(line.rstrip())
+                
+    except KeyboardInterrupt:
+        console.print(Panel("Stopping server...", border_style="yellow", title="SERVER"))
+        process.terminate()
         try:
-            if src != audio_path and os.path.exists(src):
-                os.remove(src)
-        except Exception:
-            pass
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+    
+    return 0
+
+async def file_command(args):
+    """Stream an audio file to the WhisperLiveKit server via WebSocket"""
+    url = f"ws://{args.url}/asr"
+    file_path = args.file
+    
+    if not os.path.exists(file_path):
+        console.print(Panel(f"File not found: {file_path}", border_style="red", title="ERROR"))
+        return 1
+    
+    console.print(Panel(
+        f"Streaming file: {file_path}\nTo server: {url}\n",
+        border_style="blue", title="FILE STREAMING"
+    ))
+    
+    transcript_lines = []
+    
+    try:
+        async with websockets.connect(url) as websocket:
+            # Read and send file in chunks
+            chunk_size = 64 * 1024  # 64KB chunks
+            with open(file_path, 'rb') as f:
+                while chunk := f.read(chunk_size):
+                    await websocket.send(chunk)
+                    await asyncio.sleep(0.01)  # Small delay to avoid flooding
+                
+                # Send empty chunk to signal end of audio
+                await websocket.send(b'')
+            
+            console.print(Panel("File sent, waiting for transcription...", border_style="blue", title="PROCESSING"))
+            
+            # Receive and process responses
+            while True:
+                try:
+                    message = await websocket.recv()
+                    data = json.loads(message)
+                    
+                    # Check if server is ready to stop
+                    if data.get('type') == 'ready_to_stop':
+                        break
+                    
+                    # Process and display lines
+                    if 'lines' in data:
+                        for line in data['lines']:
+                            speaker = line.get('speaker', line.get('spk', ''))
+                            text = line.get('text', line.get('line', ''))
+                            
+                            if speaker and text:
+                                formatted_line = f"[{speaker}] {text}"
+                                console.print(formatted_line)
+                                transcript_lines.append(formatted_line)
+                            elif text:
+                                console.print(text)
+                                transcript_lines.append(text)
+                    else:
+                        # Just print the raw JSON if we don't understand the format
+                        console.print(json.dumps(data, indent=2))
+                
+                except websockets.exceptions.ConnectionClosed:
+                    console.print(Panel("Connection closed by server", border_style="yellow", title="COMPLETE"))
+                    break
+                
+    except websockets.exceptions.WebSocketException as e:
+        console.print(Panel(f"WebSocket error: {e}", border_style="red", title="ERROR"))
+        return 1
+    except Exception as e:
+        console.print(Panel(f"Error: {e}", border_style="red", title="ERROR"))
+        return 1
+    
+    if transcript_lines:
+        save_transcript(transcript_lines, prefix="file-transcript")
+    
+    return 0
 
 def main():
-    parser = argparse.ArgumentParser(description="Console transcriber: realtime (live) and diarization (offline)")
-    sub = parser.add_subparsers(dest='cmd', required=True)
-
-    p_live = sub.add_parser('live', help='Real-time microphone transcription')
-    p_live.add_argument('--engine', choices=['rstt', 'legacy'], default='rstt', help='Transcription engine (default: rstt)')
-    p_live.add_argument('--language', default='en', help='Language code (e.g., en, es, zh). Use empty for auto')
-    p_live.add_argument('--model', default='base', help='Whisper model size/name (e.g., tiny, base, small)')
-    p_live.add_argument('--buffer-size', type=int, default=2, help='Legacy engine: number of segments to buffer before printing')
-    p_live.add_argument('--phrase-time-limit', type=int, default=3, help='Legacy engine: seconds per phrase chunk')
-    p_live.add_argument('--no-save', action='store_true', help='Do not save transcript to Downloads at exit')
-    p_live.add_argument('--plain', action='store_true', help='Plain output (no rich panels)')
-
-    p_diar = sub.add_parser('diarize', help='Offline speaker diarization for an audio file (WAV 16kHz mono)')
-    p_diar.add_argument('audio_path', help='Path to WAV file (16kHz mono 16-bit)')
-    p_diar.add_argument('--device', choices=['auto', 'cuda', 'mps', 'cpu'], default='auto', help='Torch device for Senko (default: auto)')
-    p_diar.add_argument('--json-out', default=None, help='Optional path to save merged segments JSON')
-
+    parser = argparse.ArgumentParser(description="WhisperLiveKit Console Interface")
+    subparsers = parser.add_subparsers(dest='command', required=True, help='Command to run')
+    
+    # Serve command
+    serve_parser = subparsers.add_parser('serve', help='Start WhisperLiveKit server')
+    serve_parser.add_argument('--host', default='127.0.0.1', help='Host to bind server to (default: 127.0.0.1)')
+    serve_parser.add_argument('--port', type=int, default=8801, help='Port to bind server to (default: 8801)')
+    serve_parser.add_argument('--model', default='base', help='Whisper model size (default: base)')
+    serve_parser.add_argument('--language', default='en', help='Language code (default: en, use "auto" for auto-detection)')
+    serve_parser.add_argument('--diarization', action='store_true', help='Enable speaker diarization')
+    serve_parser.add_argument('--device', default='auto', choices=['auto', 'cpu', 'cuda', 'mps'], 
+                             help='Device to use (default: auto)')
+    serve_parser.add_argument('--backend', default='simulstreaming', 
+                             choices=['simulstreaming', 'faster-whisper', 'whisper_timestamped', 'mlx-whisper'],
+                             help='Backend to use (default: simulstreaming)')
+    
+    # File command
+    file_parser = subparsers.add_parser('file', help='Stream audio file to WhisperLiveKit server')
+    file_parser.add_argument('file', help='Path to audio file')
+    file_parser.add_argument('--url', default='127.0.0.1:8801', help='Server URL (default: 127.0.0.1:8801)')
+    
     args = parser.parse_args()
-
-    if args.cmd == 'live':
-        save = not args.no_save
-        if args.engine == 'rstt':
-            try:
-                live_realtimestt(args.language, args.model, save, args.plain)
-            except ImportError as e:
-                console.print(Panel(str(e) + "\nFalling back to legacy engine…", border_style="yellow", title="FALLBACK"))
-                live_legacy(args.language, args.model, args.buffer_size, args.phrase_time_limit, save, args.plain)
-        else:
-            live_legacy(args.language, args.model, args.buffer_size, args.phrase_time_limit, save, args.plain)
-    elif args.cmd == 'diarize':
-        diarize_file(args.audio_path, device=args.device, json_out=args.json_out)
+    
+    if args.command == 'serve':
+        return serve_command(args)
+    elif args.command == 'file':
+        return asyncio.run(file_command(args))
+    else:
+        parser.print_help()
+        return 1
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

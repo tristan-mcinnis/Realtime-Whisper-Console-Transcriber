@@ -1,117 +1,55 @@
-# Realtime Whisper Console Transcriber (Refreshed)
+# Realtime Whisper Console Transcriber (WhisperLiveKit)
 
-A simple, fast terminal transcriber with two commands:
-
-* `live` – real-time microphone transcription  
-* `diarize` – offline speaker diarization (optional)
-
-`live` defaults to the low-latency RealtimeSTT engine and automatically falls back to a legacy SpeechRecognition + faster-whisper path if RealtimeSTT is not installed.  
-`diarize` uses the Senko library for very fast speaker diarization when available.
-
----
+A minimal, real-time speech-to-text stack powered **entirely** by [WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit).
 
 ## 1&nbsp;· Features
-- **Live mic transcription in terminal**
-- **Default engine**: RealtimeSTT (voice-activity-detection, wake-word ready, low latency)  
-  **Fallback**: legacy SpeechRecognition + faster-whisper
-- **Optional offline speaker diarization** via Senko (`diarize` command)
-- Saves transcripts to `~/Downloads/` automatically (disable with `--no-save`)
-- Tested on **macOS** and **Windows**
-
----
+- 🔴 Live microphone transcription in the terminal  
+- 🗣️ Optional **live speaker diarization**  
+- 🖥️ Clean Electron desktop UI (auto-starts the backend)  
+- 📂 Stream any audio/video file over WebSocket via CLI  
 
 ## 2&nbsp;· Requirements
 - Python **3.9+**
-- **PortAudio** runtime for microphone access  
-  • macOS: `brew install portaudio` then `pip install pyaudio`  
-  • Windows: `pip install pipwin && pipwin install pyaudio`
-
----
+- **ffmpeg** in `PATH`  
+  • macOS `brew install ffmpeg` • Windows <https://ffmpeg.org/download.html>  
+- Node **18+** (to run the optional Electron app)
 
 ## 3&nbsp;· Install
-
 ```bash
 git clone https://github.com/tristan-mcinnis/Realtime-Whisper-Console-Transcriber
 cd Realtime-Whisper-Console-Transcriber
 
-# create & activate virtual env  (Windows: .venv\Scripts\activate)
-python -m venv .venv && source .venv/bin/activate
+# (optional) create & activate a virtual env
+python -m venv .venv && source .venv/bin/activate          # Windows: .venv\Scripts\activate
 
-# core dependencies
+# core deps – WhisperLiveKit, Rich, websockets, …
 pip install -r requirements.txt
-
-# Optional – best live experience
-pip install RealtimeSTT
-
-# Optional – diarization (Senko)
-# mac / CPU:
-uv pip install "git+https://github.com/narcotic-sh/senko.git"
-# NVIDIA GPU: see Senko README for the correct extras
 ```
-
----
 
 ## 4&nbsp;· Usage
 
-### Live (default engine: RealtimeSTT)
+### ① Start a local server
 ```bash
-python transcribe.py live --language en
+python transcribe.py serve --language en --model base --diarization
+# ↳ listens on ws://127.0.0.1:8801/asr
 ```
-If RealtimeSTT is not present, the script transparently switches to the legacy engine.
+Speak and watch the transcript (with speaker labels if `--diarization` is passed) stream into the console.
 
+### ② Desktop UI
 ```bash
-# Minimal console output (no Rich panels)
-python transcribe.py live --language en --plain
-```
-
-### Live with legacy engine
-```bash
-python transcribe.py live --engine legacy \
-    --language en \
-    --buffer-size 2 \
-    --phrase-time-limit 3
-```
-
-### Diarize a WAV file (16 kHz mono 16-bit)
-```bash
-python transcribe.py diarize path/to/audio.wav \
-    --device auto \
-    --json-out diarization.json
-```
-Prints speaker segments and (optionally) writes merged segments to JSON.  
-Prepare audio with `ffmpeg -i input.mp3 -ac 1 -ar 16000 -sample_fmt s16 output.wav`  (if you pass a non-WAV file, the tool will attempt this conversion automatically when **ffmpeg** is available).
-
----
-
-## 5&nbsp;· Notes
-- **GPU** acceleration is optional. RealtimeSTT supports CUDA; faster-whisper runs on CPU by default.
-- On **Windows**, multiprocessing requirements are handled inside the script (`if __name__ == "__main__":` guard).
-- Disable automatic saving of transcripts via `--no-save` flag on `live`.
-
----
-
-## 6&nbsp;· License
-This project remains under the existing LICENSE contained in the repository.
-
----
-
-## 7&nbsp;· Electron App
-
-An optional, ultra-lightweight desktop UI wraps the same `transcribe.py` commands.
-
-```bash
-# from the repository root
 cd electron
-npm install        # first-time setup
-npm start          # launches the UI
+npm install           # first-time only
+npm start
 ```
+The UI launches, auto-spawns the server, connects the mic, and shows live text.
 
-The window offers two tabs:
-1. **Live** – starts/stops real-time mic transcription.  
-2. **Diarize** – pick an audio file and run offline speaker diarization.
+### ③ Stream a file to the server
+```bash
+python transcribe.py file path/to/audio_or_video.mp3 --url 127.0.0.1:8801
+```
+Results appear in the console and are saved to `~/Downloads/file-transcript-*.txt`.
 
-Internally the UI simply spawns:
-* `python transcribe.py live …`  
-* `python transcribe.py diarize …`
+---
 
-Therefore **Python 3** must be on your `PATH` and all repository Python dependencies should be installed (see sections 2 & 3). No additional build step is required—Electron bundles everything for quick iteration.
+## 5&nbsp;· License
+This project remains under the original LICENSE.

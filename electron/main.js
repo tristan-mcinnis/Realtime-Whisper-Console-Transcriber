@@ -24,6 +24,24 @@ function resolvePython() {
   return null;
 }
 
+/**
+ * Attempt to build the spawn command/args for whisperlivekit-server.
+ * Returns {cmd, args} or null when not available.
+ */
+function resolveWhisperServer(baseArgs = []) {
+  // 1. Direct console script
+  if (spawnSync('whisperlivekit-server', ['--version'], { stdio: 'ignore' }).status === 0) {
+    return { cmd: 'whisperlivekit-server', args: baseArgs };
+  }
+  // 2. python -m whisperlivekit.basic_server
+  const py = resolvePython();
+  if (!py) return null;
+  return {
+    cmd: py.cmd,
+    args: [...py.prefix, '-m', 'whisperlivekit.basic_server', ...baseArgs],
+  };
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 980,
@@ -49,68 +67,51 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-function startProcess(args) {
+function startServer(opts) {
   if (child) {
-    mainWindow.webContents.send('process-data', '\n[Already running]\n');
+    mainWindow.webContents.send('server-log', '\n[Server already running]\n');
     return;
   }
-  const py = resolvePython();
-  if (!py) {
-    mainWindow.webContents.send('process-data', 'Python not found. Install Python 3 and ensure it is in PATH.');
+
+  const port = opts?.port || 8801;
+  const model = opts?.model || 'base';
+  const language = opts?.language || 'en';
+  const diar = !!opts?.diarization;
+
+  const baseArgs = ['--host', '127.0.0.1', '--port', String(port),
+                    '--model', model, '--lan', language];
+  if (diar) baseArgs.push('--diarization');
+
+  const resolved = resolveWhisperServer(baseArgs);
+  if (!resolved) {
+    mainWindow.webContents.send('server-log', 'Cannot locate whisperlivekit-server. Install with "pip install whisperlivekit".');
     return;
   }
-  const repoRoot = path.join(__dirname, '..');
-  const script = path.join(repoRoot, 'transcribe.py');
-  const fullArgs = [...py.prefix, script, ...args];
-  child = spawn(py.cmd, fullArgs, { cwd: repoRoot, shell: false, windowsHide: true });
+
+  child = spawn(resolved.cmd, resolved.args, { shell: false, windowsHide: true });
 
   child.stdout.on('data', (d) => {
-    mainWindow.webContents.send('process-data', d.toString());
+    mainWindow.webContents.send('server-log', d.toString());
   });
   child.stderr.on('data', (d) => {
-    mainWindow.webContents.send('process-data', d.toString());
+    mainWindow.webContents.send('server-log', d.toString());
   });
   child.on('close', (code) => {
-    mainWindow.webContents.send('process-exited', code);
+    mainWindow.webContents.send('server-log', `\n[Server exited with code ${code}]\n`);
     child = null;
   });
 }
 
-ipcMain.handle('pick-file', async () => {
-  const res = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
-    filters: [
-      { name: 'Audio', extensions: ['wav', 'mp3', 'm4a', 'flac', 'ogg', 'oga', 'aac', 'wma'] },
-      { name: 'All', extensions: ['*'] }
-    ]
-  });
-  if (res.canceled || !res.filePaths[0]) return null;
-  return res.filePaths[0];
+ipcMain.handle('start-server', async (_evt, opts) => {
+  startServer(opts || {});
 });
 
-ipcMain.handle('start-live', async (_evt, opts) => {
-  const args = ['live'];
-  if (opts.engine) args.push('--engine', opts.engine);
-  if (typeof opts.language === 'string') args.push('--language', opts.language);
-  if (typeof opts.model === 'string') args.push('--model', opts.model);
-  if (opts.engine === 'legacy') {
-    if (opts.bufferSize) args.push('--buffer-size', String(opts.bufferSize));
-    if (opts.phraseTimeLimit) args.push('--phrase-time-limit', String(opts.phraseTimeLimit));
-  }
-  if (opts.plain) args.push('--plain');
-  if (opts.noSave) args.push('--no-save');
-  startProcess(args);
-});
-
-ipcMain.handle('stop', async () => {
+ipcMain.handle('stop-server', async () => {
   if (child) {
     try { child.kill(); } catch {}
   }
 });
 
-ipcMain.handle('run-diarize', async (_evt, opts) => {
-  const args = ['diarize', opts.path];
-  if (opts.device) args.push('--device', opts.device);
-  if (opts.jsonOut) args.push('--json-out', opts.jsonOut);
-  startProcess(args);
+ipcMain.handle('get-ws-url', async (_evt, port = 8801) => {
+  return `ws://127.0.0.1:${port}/asr`;
 });

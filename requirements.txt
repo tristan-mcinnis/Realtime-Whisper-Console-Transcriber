@@ -1,4 +1,3 @@
-rich
-faster-whisper
-SpeechRecognition
-pyaudio
+whisperlivekit>=0.2.8
+websockets>=11.0.0
+rich>=13.0.0
