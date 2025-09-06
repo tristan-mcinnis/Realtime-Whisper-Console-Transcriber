@@ -1,0 +1,91 @@
+:root {
+  --bg: #0b0c0f;
+  --panel: #121318;
+  --text: #e7e9ee;
+  --muted: #a7adbb;
+  --accent: #4f8cff;
+  --accent-2: #58d68d;
+  --border: #1c1f26;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+h1 { font-size: 16px; margin: 0; font-weight: 600; }
+main { padding: 16px; }
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.tab { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 7px; cursor: pointer; }
+.tab.active { background: #0f1117; border-color: #2a2e39; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+.row { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+label { color: var(--muted); font-size: 12px; }
+input, select, button {
+  background: #12151d;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 6px 8px;
+}
+input, select { min-width: 90px; }
+input[type="number"] { width: 72px; }
+input[type="checkbox"] { min-width: auto; width: auto; }
+button { cursor: pointer; }
+button:hover { border-color: #2a2e39; }
+button:active { background: #0d0f15; }
+button#start { background: var(--accent); color: #fff; border-color: transparent; }
+button#start:hover { background: #4680eb; }
+button#runDiarize { background: var(--accent-2); color: #fff; border-color: transparent; }
+button#runDiarize:hover { background: #4ec57f; }
+button.secondary { color: var(--muted); }
+.controls { display: flex; gap: 8px; margin: 8px 0; }
+
+.output {
+  background: #0f1117;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 280px;
+  max-height: 50vh;
+  padding: 10px;
+  white-space: pre-wrap;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  margin: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .row { flex-direction: column; align-items: flex-start; }
+  .row > * { width: 100%; }
+  input, select { min-width: 0; }
+}
+
+/* Focus styles */
+input:focus, select:focus, button:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Transitions */
+.tab, button, input, select {
+  transition: background 0.15s, border-color 0.15s;
+}

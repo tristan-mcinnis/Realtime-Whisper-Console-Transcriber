@@ -92,3 +92,26 @@ Prepare audio with `ffmpeg -i input.mp3 -ac 1 -ar 16000 -sample_fmt s16 output.w
 
 ## 6&nbsp;· License
 This project remains under the existing LICENSE contained in the repository.
+
+---
+
+## 7&nbsp;· Electron App
+
+An optional, ultra-lightweight desktop UI wraps the same `transcribe.py` commands.
+
+```bash
+# from the repository root
+cd electron
+npm install        # first-time setup
+npm start          # launches the UI
+```
+
+The window offers two tabs:
+1. **Live** – starts/stops real-time mic transcription.  
+2. **Diarize** – pick an audio file and run offline speaker diarization.
+
+Internally the UI simply spawns:
+* `python transcribe.py live …`  
+* `python transcribe.py diarize …`
+
+Therefore **Python 3** must be on your `PATH` and all repository Python dependencies should be installed (see sections 2 & 3). No additional build step is required—Electron bundles everything for quick iteration.

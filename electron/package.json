@@ -1,0 +1,14 @@
+{
+  "name": "whisper-console-electron",
+  "version": "0.1.0",
+  "description": "Simple Electron UI for Realtime Whisper Console Transcriber",
+  "main": "main.js",
+  "author": "Tristan McInnis",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^31.3.0"
+  }
+}

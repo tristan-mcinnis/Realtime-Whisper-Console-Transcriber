@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Console Transcriber</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Console Transcriber</h1>
+  </header>
+  <main>
+    <section class="panel">
+      <div class="tabs">
+        <button class="tab active" data-tab="live">Live</button>
+        <button class="tab" data-tab="diarize">Diarize</button>
+      </div>
+
+      <div class="tab-content active" id="tab-live">
+        <div class="row">
+          <label>Engine</label>
+          <select id="engine">
+            <option value="rstt" selected>RealtimeSTT</option>
+            <option value="legacy">Legacy</option>
+          </select>
+          <label>Language</label>
+          <input id="language" value="en" />
+          <label>Model</label>
+          <select id="model">
+            <option>tiny</option>
+            <option selected>base</option>
+            <option>small</option>
+            <option>medium</option>
+          </select>
+          <label>Plain</label>
+          <input type="checkbox" id="plain" />
+          <label>No Save</label>
+          <input type="checkbox" id="noSave" />
+        </div>
+        <div class="row" id="legacy-opts" style="display:none;">
+          <label>Buffer</label>
+          <input id="bufferSize" type="number" value="2" min="1" />
+          <label>Phrase Limit</label>
+          <input id="phraseTimeLimit" type="number" value="3" min="1" />
+        </div>
+        <div class="controls">
+          <button id="start">Start</button>
+          <button id="stop" class="secondary">Stop</button>
+          <button id="clear" class="secondary">Clear</button>
+          <button id="copy" class="secondary">Copy</button>
+        </div>
+        <pre id="output" class="output" spellcheck="false"></pre>
+      </div>
+
+      <div class="tab-content" id="tab-diarize">
+        <div class="row">
+          <label>File</label>
+          <input id="filePath" placeholder="Pick an audio file..." style="flex:1;" />
+          <button id="browse" class="secondary">Browse</button>
+          <label>Device</label>
+          <select id="device">
+            <option value="auto" selected>auto</option>
+            <option>cuda</option>
+            <option>mps</option>
+            <option>cpu</option>
+          </select>
+          <button id="runDiarize">Run</button>
+        </div>
+        <pre id="diarOut" class="output" spellcheck="false"></pre>
+      </div>
+    </section>
+  </main>
+  <script src="renderer.js"></script>
+</body>
+</html>
