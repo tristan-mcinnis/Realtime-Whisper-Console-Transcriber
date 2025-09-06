@@ -1,0 +1,4 @@
+rich
+faster-whisper
+SpeechRecognition
+pyaudio
