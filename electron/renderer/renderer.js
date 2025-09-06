@@ -2,6 +2,8 @@
   const $ = (sel) => document.querySelector(sel);
   const output = $('#output');
   const diarOut = $('#diarOut');
+  // track which subprocess is currently active ('live' | 'diarize')
+  let current = null;
 
   function append(el, text) {
     el.textContent += text;
@@ -28,6 +30,7 @@
   // Live controls
   $('#start').addEventListener('click', async () => {
     output.textContent += '\n[Starting...]\n';
+    current = 'live';
     window.api.startLive({
       engine: engine.value,
       language: $('#language').value,
@@ -61,6 +64,7 @@
     diarOut.textContent += '\n[Running diarize...]\n';
     const path = $('#filePath').value.trim();
     if (!path) return;
+    current = 'diarize';
     window.api.runDiarize({
       path,
       device: $('#device').value,
@@ -69,14 +73,13 @@
 
   // Streamed data and exit events
   window.api.onData((data) => {
-    const activeTab = document.querySelector('.tab.active').dataset.tab;
-    if (activeTab === 'live') append(output, data);
-    else append(diarOut, data);
+    if (current === 'diarize') append(diarOut, data);
+    else append(output, data); // default to live
   });
   window.api.onExit((code) => {
     const msg = `\n[Process exited with code ${code}]\n`;
-    const activeTab = document.querySelector('.tab.active').dataset.tab;
-    if (activeTab === 'live') append(output, msg);
-    else append(diarOut, msg);
+    if (current === 'diarize') append(diarOut, msg);
+    else append(output, msg);
+    current = null;
   });
 })();
