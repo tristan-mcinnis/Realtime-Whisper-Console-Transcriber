@@ -1,70 +1,94 @@
-# Whisper Console Transcriber
+# Realtime Whisper Console Transcriber (Refreshed)
 
-A real-time speech-to-text transcriber using the Whisper model, designed for efficiency and ease of use in the console. This tool leverages the faster_whisper library and Rich to provide a seamless user experience for transcribing audio inputs on the fly.
+A simple, fast terminal transcriber with two commands:
 
-## Background
+* `live` – real-time microphone transcription  
+* `diarize` – offline speaker diarization (optional)
 
-Whisper is a state-of-the-art model for automatic speech recognition (ASR). This project utilizes the Whisper model and provides a practical interface for capturing live audio input, transcribing it, and displaying the results in real time. It's designed to be flexible, allowing the user to choose the language of transcription and offering a buffer system to handle continuous speech.
+`live` defaults to the low-latency RealtimeSTT engine and automatically falls back to a legacy SpeechRecognition + faster-whisper path if RealtimeSTT is not installed.  
+`diarize` uses the Senko library for very fast speaker diarization when available.
 
-## Features
+---
 
--  Real-time speech-to-text using Whisper model
--  Support for multiple languages
--  Console-based application with rich text formatting
--  Automatic ambient noise adjustment
--  Saves transcriptions to a file in the Downloads folder
+## 1&nbsp;· Features
+- **Live mic transcription in terminal**
+- **Default engine**: RealtimeSTT (voice-activity-detection, wake-word ready, low latency)  
+  **Fallback**: legacy SpeechRecognition + faster-whisper
+- **Optional offline speaker diarization** via Senko (`diarize` command)
+- Saves transcripts to `~/Downloads/` automatically (disable with `--no-save`)
+- Tested on **macOS** and **Windows**
 
-## Installation
+---
 
-To install and run this project, follow these steps:
+## 2&nbsp;· Requirements
+- Python **3.9+**
+- **PortAudio** runtime for microphone access  
+  • macOS: `brew install portaudio` then `pip install pyaudio`  
+  • Windows: `pip install pipwin && pipwin install pyaudio`
 
-1. **Clone the repo:**
-    ```sh
-    git clone https://github.com/nexuslux/Realtime-Whisper-Console-Transcriber
-    cd WhisperConsoleTranscriber
-    ```
+---
 
-2. **Set up a virtual environment (optional but recommended):**
-    ```sh
-    python -m venv venv
-    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-    ```
+## 3&nbsp;· Install
 
-3. **Install required dependencies:**
-    ```sh
-    pip install faster_whisper speechrecognition rich
-    ```
+```bash
+git clone https://github.com/tristan-mcinnis/Realtime-Whisper-Console-Transcriber
+cd Realtime-Whisper-Console-Transcriber
 
-## How to Run
+# create & activate virtual env  (Windows: .venv\Scripts\activate)
+python -m venv .venv && source .venv/bin/activate
 
-1. **Run the script:**
-    ```sh
-    python script_name.py
-    ```
+# core dependencies
+pip install -r requirements.txt
 
-2. **Follow the prompts:**
-    - After running the script, you will be prompted to enter the language code (e.g., 'en' for English, 'zh' for Chinese, 'es' for Spanish).
-    - The application will then adjust for ambient noise and start capturing audio.
+# Optional – best live experience
+pip install RealtimeSTT
 
-3. **Start speaking or playing audio:**
-    - Once you start speaking, the application will transcribe your speech in real time.
-    - Transcriptions are buffered and displayed in chunks.
+# Optional – diarization (Senko)
+# mac / CPU:
+uv pip install "git+https://github.com/narcotic-sh/senko.git"
+# NVIDIA GPU: see Senko README for the correct extras
+```
 
-4. **Stop listening:**
-    - Press `CTRL + C` to stop the transcription process.
-    - The transcriptions will automatically be saved to a text file in your Downloads folder.
+---
 
-## Example
+## 4&nbsp;· Usage
 
-```sh
-python transcribe.py
- ```
+### Live (default engine: RealtimeSTT)
+```bash
+python transcribe.py live --language en
+```
+If RealtimeSTT is not present, the script transparently switches to the legacy engine.
 
-After this you will be asked to enter the main language.
-	•	Enter the language code: en
-	•	Start speaking. The application will display transcribed text in the console.
-	•	End the session with CTRL + C. The output will be saved to a text file in the Downloads folder.
-Customization
-You can customize the following parameters in the script:
-	•	buffer_size: Number of segments to buffer before displaying the transcription.
-	•	language_code: Set your preferred default language code for transcription.
+```bash
+# Minimal console output (no Rich panels)
+python transcribe.py live --language en --plain
+```
+
+### Live with legacy engine
+```bash
+python transcribe.py live --engine legacy \
+    --language en \
+    --buffer-size 2 \
+    --phrase-time-limit 3
+```
+
+### Diarize a WAV file (16 kHz mono 16-bit)
+```bash
+python transcribe.py diarize path/to/audio.wav \
+    --device auto \
+    --json-out diarization.json
+```
+Prints speaker segments and (optionally) writes merged segments to JSON.  
+Prepare audio with `ffmpeg -i input.mp3 -ac 1 -ar 16000 -sample_fmt s16 output.wav`  (if you pass a non-WAV file, the tool will attempt this conversion automatically when **ffmpeg** is available).
+
+---
+
+## 5&nbsp;· Notes
+- **GPU** acceleration is optional. RealtimeSTT supports CUDA; faster-whisper runs on CPU by default.
+- On **Windows**, multiprocessing requirements are handled inside the script (`if __name__ == "__main__":` guard).
+- Disable automatic saving of transcripts via `--no-save` flag on `live`.
+
+---
+
+## 6&nbsp;· License
+This project remains under the existing LICENSE contained in the repository.
